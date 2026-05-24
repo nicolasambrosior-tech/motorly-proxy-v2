@@ -5,7 +5,9 @@
  */
 
 const express = require('express');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,7 +24,7 @@ async function getBrowser() {
   if (browser && browser.isConnected()) return browser;
   console.log('[puppeteer] launching Chrome...');
   browser = await puppeteer.launch({
-    headless: 'new',
+    headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -30,8 +32,8 @@ async function getBrowser() {
       '--disable-accelerated-2d-canvas',
       '--no-first-run',
       '--no-zygote',
-      '--single-process',
       '--disable-gpu',
+      '--window-size=1280,800',
     ],
   });
   console.log('[puppeteer] Chrome ready');
