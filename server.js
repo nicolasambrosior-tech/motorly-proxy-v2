@@ -39,7 +39,7 @@ async function getBrowser() {
 }
 
 // ─── Fetch via real Chrome ────────────────────────────────────────
-async function fetchWithChrome(path, timeoutMs = 15000) {
+async function fetchWithChrome(path, timeoutMs = 30000) {
   const url = `${BASE}${path}?apikey=${API_KEY}`;
   const b = await getBrowser();
   const page = await b.newPage();
@@ -51,16 +51,26 @@ async function fetchWithChrome(path, timeoutMs = 15000) {
       '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     );
 
-    // Wait for JSON to appear (Cloudflare challenge may add a delay)
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: timeoutMs });
+    // Extra headers to look like a real browser
+    await page.setExtraHTTPHeaders({
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+      'Accept-Language': 'es-CL,es;q=0.9,en;q=0.8',
+      'Accept-Encoding': 'gzip, deflate, br',
+    });
 
-    // Some CF challenges redirect — wait for actual content
-    const text = await page.evaluate(() => document.body.innerText.trim());
+    // Use domcontentloaded — CF challenge completes before networkidle
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
 
-    if (!text.startsWith('{') && !text.startsWith('[')) {
-      throw new Error('CF_BLOCKED: ' + text.slice(0, 200));
-    }
+    // Poll until body contains JSON (Cloudflare may redirect + challenge ~3-8s)
+    const text = await page.waitForFunction(
+      () => {
+        const t = document.body?.innerText?.trim() ?? '';
+        return (t.startsWith('{') || t.startsWith('[')) ? t : false;
+      },
+      { timeout: timeoutMs, polling: 500 }
+    ).then(h => h.jsonValue());
 
+    if (!text) throw new Error('No JSON found after CF challenge');
     return JSON.parse(text);
   } finally {
     await page.close();
