@@ -7,9 +7,11 @@
 const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const { upsertRegistration, runDailyCheck } = require('./push');
 puppeteer.use(StealthPlugin());
 
 const app = express();
+app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 const API_KEY =
@@ -152,6 +154,32 @@ app.get('/vehicle/:plate/all', async (req, res) => {
   } catch (e) {
     console.error(`[all] error for ${plate}:`, e.message);
     res.status(502).json({ error: e.message });
+  }
+});
+
+// ─── Push notification registration ──────────────────────────
+
+// POST /register — app sends push token + vehicle expiry dates
+app.post('/register', (req, res) => {
+  const { token, plate, name, inspectionExpiry, soapExpiry, permisoExpiry } = req.body;
+  if (!token) return res.status(400).json({ error: 'token required' });
+  try {
+    upsertRegistration({ token, plate, name, inspectionExpiry, soapExpiry, permisoExpiry });
+    console.log(`[register] ${plate} — token: ${token.slice(0, 20)}...`);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[register] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /push/run — manual trigger for testing
+app.post('/push/run', async (req, res) => {
+  try {
+    await runDailyCheck();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
