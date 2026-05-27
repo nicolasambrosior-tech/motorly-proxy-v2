@@ -88,6 +88,24 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', service: 'motorly-boostr-proxy', version: '2.0' });
 });
 
+// Debug: test Boostr with X-API-KEY directly (no Puppeteer)
+app.get('/test/:plate', async (req, res) => {
+  const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  try {
+    const response = await fetch(`https://api.boostr.cl/vehicle/${plate}.json`, {
+      headers: {
+        'X-API-KEY': API_KEY,
+        'Accept': 'application/json',
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+    const text = await response.text();
+    res.json({ status: response.status, body: text.slice(0, 500) });
+  } catch (e) {
+    res.json({ error: e.message });
+  }
+});
+
 // Vehicle data
 app.get('/vehicle/:plate', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
