@@ -88,22 +88,31 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', service: 'motorly-boostr-proxy', version: '2.0' });
 });
 
-// Debug: test Boostr with X-API-KEY directly (no Puppeteer)
+// Debug: test multiple auth combinations
 app.get('/test/:plate', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  try {
-    const response = await fetch(`https://api.boostr.cl/vehicle/${plate}.json`, {
-      headers: {
-        'X-API-KEY': API_KEY,
-        'Accept': 'application/json',
-      },
-      signal: AbortSignal.timeout(12000),
-    });
-    const text = await response.text();
-    res.json({ status: response.status, body: text.slice(0, 500) });
-  } catch (e) {
-    res.json({ error: e.message });
+  const results = {};
+
+  const attempts = [
+    { label: 'header_only',    url: `https://api.boostr.cl/vehicle/${plate}.json`,              headers: { 'X-API-KEY': API_KEY } },
+    { label: 'header_plus_param', url: `https://api.boostr.cl/vehicle/${plate}.json?apikey=${API_KEY}`, headers: { 'X-API-KEY': API_KEY } },
+    { label: 'bearer_only',    url: `https://api.boostr.cl/vehicle/${plate}.json`,              headers: { 'Authorization': `Bearer ${API_KEY}` } },
+  ];
+
+  for (const a of attempts) {
+    try {
+      const response = await fetch(a.url, {
+        headers: { ...a.headers, 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
+      const text = await response.text();
+      results[a.label] = { status: response.status, body: text.slice(0, 300) };
+    } catch (e) {
+      results[a.label] = { error: e.message };
+    }
   }
+
+  res.json(results);
 });
 
 // Vehicle data
