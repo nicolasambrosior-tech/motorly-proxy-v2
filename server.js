@@ -15,7 +15,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 const API_KEY =
-  'clnts.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNsbnRzXzAxSlI1WUQ4WE5aMTc2MkJWNFZBTkE2NllaIiwidHlwZSI6ImFwaWtleSIsImFjY2Vzc0xldmVsIjoiZnVsbCIsImlhdCI6MTc0NzE4OTc0MCwiZXhwIjozMzI5OTg1OTc0MH0.PBY6YlxcmLb4q8u7u0XVMI0JEoEk89F0h3eqr_qTAI';
+  'clnts.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbGllbnQiOjE3NSwicGxhbiI6ImN1c3RvbSIsImFkZG9ucyI6IiIsImV4Y2x1ZGVzIjoiIiwicmF0ZSI6IjV4MTAiLCJjdXN0b20iOnsiZG9jdW1lbnRfbnVtYmVyX2RhaWx5X2xpbWl0IjowLCJwbGF0ZXNfZGFpbHlfbGltaXQiOjB9LCJpYXQiOjE3Nzg3ODA4MjksImV4cCI6MTkwNTAxMTIyOX0.30q7FCtygUDaqyaV0RrHTYC4s-bAqo3SXIHekYF23lE';
 
 const BASE = 'https://api.boostr.cl';
 
