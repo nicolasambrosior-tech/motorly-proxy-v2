@@ -73,7 +73,48 @@ async function fetchDirect(path, timeoutMs = 10000) {
   return JSON.parse(text);
 }
 
-// ─── Fetch via real Chrome (fallback si Cloudflare bloquea) ──────
+// ─── Scrape boostr.cl website interceptando llamadas API ─────────
+async function scrapeBoostWebsite(plate, endpoint, timeoutMs = 45000) {
+  // endpoint: 'inspection' | 'soap' | 'fines'
+  const b = await getBrowser();
+  const page = await b.newPage();
+  let captured = null;
+
+  try {
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    );
+
+    // Interceptar respuestas de la API que hace el front-end
+    page.on('response', async (response) => {
+      const url = response.url();
+      if (url.includes(endpoint) && url.includes(plate.toLowerCase())) {
+        try {
+          const json = await response.json();
+          captured = json;
+          console.log(`[intercept] captured ${endpoint} for ${plate}`);
+        } catch {}
+      }
+    });
+
+    await page.goto(`https://boostr.cl/vehicle/${plate}`, {
+      waitUntil: 'networkidle0',
+      timeout: timeoutMs,
+    });
+
+    // Esperar hasta 10s extra por si la respuesta llega tarde
+    if (!captured) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+
+    return captured;
+  } finally {
+    await page.close();
+  }
+}
+
+// ─── Fetch via real Chrome (api.boostr.cl directo) ───────────────
 async function fetchWithChrome(path, timeoutMs = 30000) {
   const url = `${BASE}${path}?apikey=${API_KEY}`;
   const b = await getBrowser();
@@ -106,14 +147,16 @@ async function fetchWithChrome(path, timeoutMs = 30000) {
   }
 }
 
-// ─── Intenta directo primero, Puppeteer como fallback ────────────
-async function fetchBoostr(path, timeoutMs = 30000) {
+// ─── Fetch principal: directo → website intercept → Puppeteer API
+async function fetchBoostr(path, timeoutMs = 45000) {
+  // Para vehicle principal → directo con API key (rápido)
   try {
     const data = await fetchDirect(path, 10000);
     console.log(`[direct] OK ${path}`);
     return data;
   } catch (e) {
-    console.log(`[direct] failed (${e.message}), falling back to Chrome...`);
+    console.log(`[direct] failed (${e.message})`);
+    // Para sub-endpoints (inspection/soap/fines) → scrape el website
     return fetchWithChrome(path, timeoutMs);
   }
 }
@@ -168,9 +211,10 @@ app.get('/vehicle/:plate', async (req, res) => {
 // Inspection (Revisión Técnica)
 app.get('/vehicle/:plate/inspection', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  console.log(`[inspection] fetching ${plate}`);
+  console.log(`[inspection] fetching ${plate} via website scrape`);
   try {
-    const data = await fetchBoostr(`/vehicle/${plate}/inspection.json`);
+    const data = await scrapeBoostWebsite(plate, 'inspection');
+    if (!data) return res.status(404).json({ status: 'not_found', data: null });
     res.json(data);
   } catch (e) {
     console.error(`[inspection] error for ${plate}:`, e.message);
@@ -181,9 +225,10 @@ app.get('/vehicle/:plate/inspection', async (req, res) => {
 // SOAP insurance
 app.get('/vehicle/:plate/soap', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  console.log(`[soap] fetching ${plate}`);
+  console.log(`[soap] fetching ${plate} via website scrape`);
   try {
-    const data = await fetchBoostr(`/vehicle/${plate}/soap.json`);
+    const data = await scrapeBoostWebsite(plate, 'soap');
+    if (!data) return res.status(404).json({ status: 'not_found', data: null });
     res.json(data);
   } catch (e) {
     console.error(`[soap] error for ${plate}:`, e.message);
@@ -204,16 +249,48 @@ app.get('/vehicle/:plate/fines', async (req, res) => {
   }
 });
 
-// All vehicle data in one shot (parallel)
+// All vehicle data — vehicle directo + inspection/soap via website intercept
 app.get('/vehicle/:plate/all', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
   console.log(`[all] fetching ${plate}`);
   try {
-    const [vehicle, inspection, soap] = await Promise.all([
-      fetchWithChrome(`/vehicle/${plate}.json`),
-      fetchBoostr(`/vehicle/${plate}/inspection.json`).catch(() => null),
-      fetchBoostr(`/vehicle/${plate}/soap.json`).catch(() => null),
-    ]);
+    // Vehicle directo con API key (rápido)
+    const vehicle = await fetchDirect(`/vehicle/${plate}.json`, 10000);
+
+    // Inspection y SOAP en una sola navegación al website
+    const b = await getBrowser();
+    const page = await b.newPage();
+    let inspection = null, soap = null;
+
+    try {
+      await page.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+        '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+      );
+
+      page.on('response', async (response) => {
+        const url = response.url();
+        try {
+          if (url.includes('inspection') && url.includes(plate.toLowerCase())) {
+            inspection = await response.json();
+            console.log(`[intercept] inspection captured for ${plate}`);
+          } else if (url.includes('soap') && url.includes(plate.toLowerCase())) {
+            soap = await response.json();
+            console.log(`[intercept] soap captured for ${plate}`);
+          }
+        } catch {}
+      });
+
+      await page.goto(`https://boostr.cl/vehicle/${plate}`, {
+        waitUntil: 'networkidle0',
+        timeout: 45000,
+      });
+
+      if (!inspection || !soap) await new Promise(r => setTimeout(r, 3000));
+    } finally {
+      await page.close();
+    }
+
     res.json({ vehicle, inspection, soap });
   } catch (e) {
     console.error(`[all] error for ${plate}:`, e.message);
