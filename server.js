@@ -73,12 +73,13 @@ async function fetchDirect(path, timeoutMs = 10000) {
   return JSON.parse(text);
 }
 
-// ─── Scrape boostr.cl website interceptando llamadas API ─────────
-async function scrapeBoostWebsite(plate, endpoint, timeoutMs = 45000) {
-  // endpoint: 'inspection' | 'soap' | 'fines'
+// ─── Scrape boostr.cl website ─────────────────────────────────────
+// Navega al sitio web, intercepta responses de la API interna,
+// y también extrae datos del estado JS de la SPA (Nuxt/Vue).
+async function scrapeBoostWebsite(plate, endpoint, timeoutMs = 50000) {
   const b = await getBrowser();
   const page = await b.newPage();
-  let captured = null;
+  const responses = {};
 
   try {
     await page.setUserAgent(
@@ -86,29 +87,56 @@ async function scrapeBoostWebsite(plate, endpoint, timeoutMs = 45000) {
       '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     );
 
-    // Interceptar respuestas de la API que hace el front-end
+    // Capturar TODAS las respuestas JSON de la API interna
     page.on('response', async (response) => {
       const url = response.url();
-      if (url.includes(endpoint) && url.includes(plate.toLowerCase())) {
-        try {
-          const json = await response.json();
-          captured = json;
-          console.log(`[intercept] captured ${endpoint} for ${plate}`);
-        } catch {}
-      }
+      const ct = response.headers()['content-type'] || '';
+      if (!ct.includes('json')) return;
+      try {
+        const json = await response.json();
+        responses[url] = json;
+        console.log(`[intercept] ${url.slice(-60)}`);
+      } catch {}
     });
 
+    // Navegar con 'load' (más rápido que networkidle0)
     await page.goto(`https://boostr.cl/vehicle/${plate}`, {
-      waitUntil: 'networkidle0',
+      waitUntil: 'load',
       timeout: timeoutMs,
     });
 
-    // Esperar hasta 10s extra por si la respuesta llega tarde
-    if (!captured) {
-      await new Promise(resolve => setTimeout(resolve, 3000));
+    // Esperar 6s para que el SPA cargue los datos asincrónicos
+    await new Promise(r => setTimeout(r, 6000));
+
+    // Intentar extraer del estado Nuxt/Vue
+    const nuxtData = await page.evaluate(() => {
+      try {
+        const n = window.__NUXT__ || window.__nuxt__;
+        return n ? JSON.stringify(n) : null;
+      } catch { return null; }
+    });
+
+    // Buscar en las respuestas interceptadas
+    const plateLC = plate.toLowerCase();
+    for (const [url, json] of Object.entries(responses)) {
+      if (url.includes(endpoint) || url.includes(plateLC)) {
+        console.log(`[intercept] matched ${endpoint} at ${url}`);
+        return json;
+      }
     }
 
-    return captured;
+    // Intentar extraer del DOM directamente
+    if (nuxtData) {
+      const raw = JSON.parse(nuxtData);
+      const str = JSON.stringify(raw);
+      if (str.includes(endpoint)) {
+        console.log(`[nuxt] found ${endpoint} in __NUXT__`);
+        return raw;
+      }
+    }
+
+    console.log(`[scrape] no data found for ${endpoint}, responses:`, Object.keys(responses));
+    return null;
   } finally {
     await page.close();
   }
