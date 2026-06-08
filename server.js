@@ -326,6 +326,44 @@ app.get('/vehicle/:plate/all', async (req, res) => {
   }
 });
 
+// Debug: muestra todas las URLs que carga boostr.cl/vehicle/:plate
+app.get('/debug/:plate', async (req, res) => {
+  const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const b = await getBrowser();
+  const page = await b.newPage();
+  const urls = [];
+  const jsonResponses = {};
+
+  try {
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+
+    page.on('response', async (response) => {
+      const url = response.url();
+      const status = response.status();
+      const ct = response.headers()['content-type'] || '';
+      urls.push({ url: url.slice(0, 120), status, ct: ct.slice(0, 40) });
+      if (ct.includes('json')) {
+        try {
+          jsonResponses[url.slice(-80)] = await response.json();
+        } catch {}
+      }
+    });
+
+    await page.goto(`https://boostr.cl/vehicle/${plate}`, {
+      waitUntil: 'load',
+      timeout: 40000,
+    });
+
+    await new Promise(r => setTimeout(r, 5000));
+
+    res.json({ urls, jsonResponses });
+  } catch (e) {
+    res.status(500).json({ error: e.message, urls });
+  } finally {
+    await page.close();
+  }
+});
+
 // ─── Push notification registration ──────────────────────────
 
 // POST /register — app sends push token + vehicle expiry dates
