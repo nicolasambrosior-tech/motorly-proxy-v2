@@ -73,13 +73,12 @@ async function fetchDirect(path, timeoutMs = 10000) {
   return JSON.parse(text);
 }
 
-// ─── Scrape boostr.cl website ─────────────────────────────────────
-// Navega al sitio web, intercepta responses de la API interna,
-// y también extrae datos del estado JS de la SPA (Nuxt/Vue).
-async function scrapeBoostWebsite(plate, endpoint, timeoutMs = 50000) {
+// ─── Scrape boostr.cl website (SSR) ──────────────────────────────
+// El sitio es server-side rendered: los datos están en el HTML.
+// Extraemos de window.__NUXT__, script JSON-LD, o del DOM visible.
+async function scrapeBoostWebsite(plate, endpoint, timeoutMs = 40000) {
   const b = await getBrowser();
   const page = await b.newPage();
-  const responses = {};
 
   try {
     await page.setUserAgent(
@@ -87,56 +86,55 @@ async function scrapeBoostWebsite(plate, endpoint, timeoutMs = 50000) {
       '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     );
 
-    // Capturar TODAS las respuestas JSON de la API interna
-    page.on('response', async (response) => {
-      const url = response.url();
-      const ct = response.headers()['content-type'] || '';
-      if (!ct.includes('json')) return;
-      try {
-        const json = await response.json();
-        responses[url] = json;
-        console.log(`[intercept] ${url.slice(-60)}`);
-      } catch {}
-    });
-
-    // Navegar con 'load' (más rápido que networkidle0)
     await page.goto(`https://boostr.cl/vehicle/${plate}`, {
       waitUntil: 'load',
       timeout: timeoutMs,
     });
 
-    // Esperar 6s para que el SPA cargue los datos asincrónicos
-    await new Promise(r => setTimeout(r, 6000));
+    // Extraer todo el estado disponible de la página
+    const pageData = await page.evaluate((ep) => {
+      const result = {};
 
-    // Intentar extraer del estado Nuxt/Vue
-    const nuxtData = await page.evaluate(() => {
+      // 1. window.__NUXT__ (Nuxt 2/3 SSR state)
       try {
-        const n = window.__NUXT__ || window.__nuxt__;
-        return n ? JSON.stringify(n) : null;
-      } catch { return null; }
-    });
+        const n = window.__NUXT__ || window.__NUXT_DATA__ || window.__nuxt__;
+        if (n) result.nuxt = n;
+      } catch {}
 
-    // Buscar en las respuestas interceptadas
-    const plateLC = plate.toLowerCase();
-    for (const [url, json] of Object.entries(responses)) {
-      if (url.includes(endpoint) || url.includes(plateLC)) {
-        console.log(`[intercept] matched ${endpoint} at ${url}`);
-        return json;
+      // 2. Script tags con JSON (JSON-LD, inline data)
+      const scripts = Array.from(document.querySelectorAll('script'));
+      result.scripts = scripts
+        .map(s => s.textContent?.trim())
+        .filter(t => t && (t.startsWith('{') || t.startsWith('[') || t.includes(ep)))
+        .slice(0, 5);
+
+      // 3. Texto visible de la página (para extracción manual)
+      result.bodyText = document.body?.innerText?.slice(0, 3000);
+
+      return result;
+    }, endpoint);
+
+    console.log(`[scrape] bodyText sample: ${pageData.bodyText?.slice(0, 200)}`);
+    console.log(`[scrape] scripts found: ${pageData.scripts?.length}`);
+    console.log(`[scrape] nuxt present: ${!!pageData.nuxt}`);
+
+    // Buscar en __NUXT__
+    if (pageData.nuxt) {
+      const str = JSON.stringify(pageData.nuxt);
+      if (str.includes(endpoint) || str.includes('expiryDate') || str.includes('expiry_date')) {
+        return { _source: 'nuxt', _raw: pageData.nuxt };
       }
     }
 
-    // Intentar extraer del DOM directamente
-    if (nuxtData) {
-      const raw = JSON.parse(nuxtData);
-      const str = JSON.stringify(raw);
-      if (str.includes(endpoint)) {
-        console.log(`[nuxt] found ${endpoint} in __NUXT__`);
-        return raw;
+    // Buscar en scripts inline
+    for (const s of (pageData.scripts || [])) {
+      if (s.includes(endpoint) || s.includes('expiry')) {
+        try { return { _source: 'script', _raw: JSON.parse(s) }; } catch {}
       }
     }
 
-    console.log(`[scrape] no data found for ${endpoint}, responses:`, Object.keys(responses));
-    return null;
+    // Si no encontramos JSON, devolver el texto para diagnóstico
+    return { _source: 'text', _raw: pageData.bodyText, _scripts: pageData.scripts };
   } finally {
     await page.close();
   }
