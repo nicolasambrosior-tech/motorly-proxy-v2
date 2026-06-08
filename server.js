@@ -52,30 +52,45 @@ async function getBrowser() {
   return browser;
 }
 
-// ─── Fetch via real Chrome ────────────────────────────────────────
+// ─── Fetch directo con API key (rápido, ~200ms) ──────────────────
+async function fetchDirect(path, timeoutMs = 10000) {
+  const url = `${BASE}${path}`;
+  const res = await fetch(url, {
+    headers: {
+      'Accept': 'application/json',
+      'X-API-KEY': API_KEY,
+      'Authorization': `Bearer ${API_KEY}`,
+      'User-Agent': 'AutoK-App/1.0',
+    },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const text = await res.text();
+  if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
+    throw new Error('Got HTML — Cloudflare blocked, needs Puppeteer');
+  }
+  return JSON.parse(text);
+}
+
+// ─── Fetch via real Chrome (fallback si Cloudflare bloquea) ──────
 async function fetchWithChrome(path, timeoutMs = 30000) {
   const url = `${BASE}${path}?apikey=${API_KEY}`;
   const b = await getBrowser();
   const page = await b.newPage();
 
   try {
-    // Set a realistic user agent
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
       '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     );
-
-    // Extra headers to look like a real browser
     await page.setExtraHTTPHeaders({
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
       'Accept-Language': 'es-CL,es;q=0.9,en;q=0.8',
-      'Accept-Encoding': 'gzip, deflate, br',
     });
 
-    // Use domcontentloaded — CF challenge completes before networkidle
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
 
-    // Poll until body contains JSON (Cloudflare may redirect + challenge ~3-8s)
     const text = await page.waitForFunction(
       () => {
         const t = document.body?.innerText?.trim() ?? '';
@@ -88,6 +103,18 @@ async function fetchWithChrome(path, timeoutMs = 30000) {
     return JSON.parse(text);
   } finally {
     await page.close();
+  }
+}
+
+// ─── Intenta directo primero, Puppeteer como fallback ────────────
+async function fetchBoostr(path, timeoutMs = 30000) {
+  try {
+    const data = await fetchDirect(path, 10000);
+    console.log(`[direct] OK ${path}`);
+    return data;
+  } catch (e) {
+    console.log(`[direct] failed (${e.message}), falling back to Chrome...`);
+    return fetchWithChrome(path, timeoutMs);
   }
 }
 
@@ -130,7 +157,7 @@ app.get('/vehicle/:plate', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
   console.log(`[vehicle] fetching ${plate}`);
   try {
-    const data = await fetchWithChrome(`/vehicle/${plate}.json`);
+    const data = await fetchBoostr(`/vehicle/${plate}.json`);
     res.json(data);
   } catch (e) {
     console.error(`[vehicle] error for ${plate}:`, e.message);
@@ -143,7 +170,7 @@ app.get('/vehicle/:plate/inspection', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
   console.log(`[inspection] fetching ${plate}`);
   try {
-    const data = await fetchWithChrome(`/vehicle/${plate}/inspection.json`);
+    const data = await fetchBoostr(`/vehicle/${plate}/inspection.json`);
     res.json(data);
   } catch (e) {
     console.error(`[inspection] error for ${plate}:`, e.message);
@@ -156,7 +183,7 @@ app.get('/vehicle/:plate/soap', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
   console.log(`[soap] fetching ${plate}`);
   try {
-    const data = await fetchWithChrome(`/vehicle/${plate}/soap.json`);
+    const data = await fetchBoostr(`/vehicle/${plate}/soap.json`);
     res.json(data);
   } catch (e) {
     console.error(`[soap] error for ${plate}:`, e.message);
@@ -169,7 +196,7 @@ app.get('/vehicle/:plate/fines', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
   console.log(`[fines] fetching ${plate}`);
   try {
-    const data = await fetchWithChrome(`/vehicle/fines/${plate}.json`);
+    const data = await fetchBoostr(`/vehicle/fines/${plate}.json`);
     res.json(data);
   } catch (e) {
     console.error(`[fines] error for ${plate}:`, e.message);
@@ -184,8 +211,8 @@ app.get('/vehicle/:plate/all', async (req, res) => {
   try {
     const [vehicle, inspection, soap] = await Promise.all([
       fetchWithChrome(`/vehicle/${plate}.json`),
-      fetchWithChrome(`/vehicle/${plate}/inspection.json`).catch(() => null),
-      fetchWithChrome(`/vehicle/${plate}/soap.json`).catch(() => null),
+      fetchBoostr(`/vehicle/${plate}/inspection.json`).catch(() => null),
+      fetchBoostr(`/vehicle/${plate}/soap.json`).catch(() => null),
     ]);
     res.json({ vehicle, inspection, soap });
   } catch (e) {
