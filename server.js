@@ -140,8 +140,8 @@ async function scrapeBoostWebsite(plate, endpoint, timeoutMs = 40000) {
   }
 }
 
-// ─── Fetch via real Chrome (api.boostr.cl directo) ───────────────
-async function fetchWithChrome(path, timeoutMs = 30000) {
+// ─── Fetch via real Chrome (api.boostr.cl con Puppeteer stealth) ─
+async function fetchWithChrome(path, timeoutMs = 45000) {
   const url = `${BASE}${path}?apikey=${API_KEY}`;
   const b = await getBrowser();
   const page = await b.newPage();
@@ -152,21 +152,27 @@ async function fetchWithChrome(path, timeoutMs = 30000) {
       '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     );
     await page.setExtraHTTPHeaders({
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+      'Accept': 'application/json, text/html, */*',
       'Accept-Language': 'es-CL,es;q=0.9,en;q=0.8',
+      'Cache-Control': 'no-cache',
     });
 
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
 
-    const text = await page.waitForFunction(
-      () => {
-        const t = document.body?.innerText?.trim() ?? '';
-        return (t.startsWith('{') || t.startsWith('[')) ? t : false;
-      },
-      { timeout: timeoutMs, polling: 500 }
-    ).then(h => h.jsonValue());
+    // Esperar hasta 15s para que CF challenge resuelva y aparezca el JSON
+    let text = '';
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      text = await page.evaluate(() => document.body?.innerText?.trim() ?? '');
+      if (text.startsWith('{') || text.startsWith('[')) break;
+      console.log(`[chrome] waiting for JSON, body starts with: ${text.slice(0, 60)}`);
+      await new Promise(r => setTimeout(r, 1500));
+    }
 
-    if (!text) throw new Error('No JSON found after CF challenge');
+    if (!text.startsWith('{') && !text.startsWith('[')) {
+      throw new Error(`No JSON after wait. Body: ${text.slice(0, 200)}`);
+    }
+
     return JSON.parse(text);
   } finally {
     await page.close();
@@ -237,10 +243,9 @@ app.get('/vehicle/:plate', async (req, res) => {
 // Inspection (Revisión Técnica)
 app.get('/vehicle/:plate/inspection', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  console.log(`[inspection] fetching ${plate} via website scrape`);
+  console.log(`[inspection] fetching ${plate}`);
   try {
-    const data = await scrapeBoostWebsite(plate, 'inspection');
-    if (!data) return res.status(404).json({ status: 'not_found', data: null });
+    const data = await fetchBoostr(`/vehicle/${plate}/inspection.json`);
     res.json(data);
   } catch (e) {
     console.error(`[inspection] error for ${plate}:`, e.message);
@@ -251,10 +256,9 @@ app.get('/vehicle/:plate/inspection', async (req, res) => {
 // SOAP insurance
 app.get('/vehicle/:plate/soap', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  console.log(`[soap] fetching ${plate} via website scrape`);
+  console.log(`[soap] fetching ${plate}`);
   try {
-    const data = await scrapeBoostWebsite(plate, 'soap');
-    if (!data) return res.status(404).json({ status: 'not_found', data: null });
+    const data = await fetchBoostr(`/vehicle/${plate}/soap.json`);
     res.json(data);
   } catch (e) {
     console.error(`[soap] error for ${plate}:`, e.message);
