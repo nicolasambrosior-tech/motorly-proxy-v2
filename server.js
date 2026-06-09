@@ -240,12 +240,12 @@ app.get('/vehicle/:plate', async (req, res) => {
   }
 });
 
-// Inspection (Revisión Técnica)
+// Inspection (Revisión Técnica) — URL correcta: /vehicle/inspection/{plate}.json
 app.get('/vehicle/:plate/inspection', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
   console.log(`[inspection] fetching ${plate}`);
   try {
-    const data = await fetchBoostr(`/vehicle/${plate}/inspection.json`);
+    const data = await fetchDirect(`/vehicle/inspection/${plate}.json`);
     res.json(data);
   } catch (e) {
     console.error(`[inspection] error for ${plate}:`, e.message);
@@ -253,12 +253,12 @@ app.get('/vehicle/:plate/inspection', async (req, res) => {
   }
 });
 
-// SOAP insurance
+// SOAP insurance — URL correcta: /vehicle/soap/{plate}.json
 app.get('/vehicle/:plate/soap', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
   console.log(`[soap] fetching ${plate}`);
   try {
-    const data = await fetchBoostr(`/vehicle/${plate}/soap.json`);
+    const data = await fetchDirect(`/vehicle/soap/${plate}.json`, 25000);
     res.json(data);
   } catch (e) {
     console.error(`[soap] error for ${plate}:`, e.message);
@@ -284,49 +284,19 @@ app.get('/vehicle/:plate/all', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
   console.log(`[all] fetching ${plate}`);
   try {
-    // Vehicle directo con API key (rápido)
-    const vehicle = await fetchDirect(`/vehicle/${plate}.json`, 10000);
-
-    // Inspection y SOAP en una sola navegación al website
-    const b = await getBrowser();
-    const page = await b.newPage();
-    let inspection = null, soap = null;
-
-    try {
-      await page.setUserAgent(
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-        '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-      );
-
-      page.on('response', async (response) => {
-        const url = response.url();
-        try {
-          if (url.includes('inspection') && url.includes(plate.toLowerCase())) {
-            inspection = await response.json();
-            console.log(`[intercept] inspection captured for ${plate}`);
-          } else if (url.includes('soap') && url.includes(plate.toLowerCase())) {
-            soap = await response.json();
-            console.log(`[intercept] soap captured for ${plate}`);
-          }
-        } catch {}
-      });
-
-      await page.goto(`https://boostr.cl/vehicle/${plate}`, {
-        waitUntil: 'networkidle0',
-        timeout: 45000,
-      });
-
-      if (!inspection || !soap) await new Promise(r => setTimeout(r, 3000));
-    } finally {
-      await page.close();
-    }
-
-    res.json({ vehicle, inspection, soap });
+    // Todo directo con API key — no Puppeteer necesario
+    const [vehicle, inspection, soap] = await Promise.all([
+      fetchDirect(`/vehicle/${plate}.json`, 10000),
+      fetchDirect(`/vehicle/inspection/${plate}.json`, 15000).catch(() => null),
+      fetchDirect(`/vehicle/soap/${plate}.json`, 25000).catch(() => null),
+    ]);
+    return res.json({ vehicle, inspection, soap });
   } catch (e) {
-    console.error(`[all] error for ${plate}:`, e.message);
+    console.error(`[all] error for ${e.message}`);
     res.status(502).json({ error: e.message });
   }
 });
+
 
 // Debug: muestra todas las URLs que carga boostr.cl/vehicle/:plate
 app.get('/debug/:plate', async (req, res) => {
