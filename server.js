@@ -7,7 +7,7 @@
 const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-const { upsertRegistration, runDailyCheck } = require('./push');
+const { upsertRegistration, runDailyCheck, setFetchFines } = require('./push');
 puppeteer.use(StealthPlugin());
 
 const app = express();
@@ -72,6 +72,9 @@ async function fetchDirect(path, timeoutMs = 10000) {
   }
   return JSON.parse(text);
 }
+
+// El cron de push.js necesita consultar multas sin duplicar la API key
+setFetchFines((plate) => fetchDirect(`/vehicle/traffic_tickets/${plate}.json`));
 
 // ─── Scrape boostr.cl website (SSR) ──────────────────────────────
 // El sitio es server-side rendered: los datos están en el HTML.

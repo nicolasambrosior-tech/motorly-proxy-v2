@@ -19,9 +19,15 @@ db.exec(`
     inspection_expiry TEXT,
     soap_expiry       TEXT,
     permiso_expiry    TEXT,
+    multas_count      INTEGER DEFAULT 0,
     updated_at  TEXT DEFAULT (datetime('now'))
   );
 `);
+
+// Migración: agrega multas_count si la tabla ya existía sin esa columna
+try {
+  db.exec(`ALTER TABLE registrations ADD COLUMN multas_count INTEGER DEFAULT 0`);
+} catch {} // ya existe — ignorar
 
 // ─── Register / update a user ────────────────────────────────
 function upsertRegistration({ token, plate, name, inspectionExpiry, soapExpiry, permisoExpiry }) {
@@ -83,6 +89,10 @@ function notifMessage(docName, days) {
 // Notify at these thresholds (days before expiry)
 const NOTIFY_AT = [30, 15, 7, 3, 1, 0, -1];
 
+// Inyectado desde server.js — consulta Boostr traffic_tickets sin duplicar la API key acá
+let _fetchFines = null;
+function setFetchFines(fn) { _fetchFines = fn; }
+
 // ─── Daily check job ─────────────────────────────────────────
 async function runDailyCheck() {
   console.log('[cron] running daily notification check...');
@@ -115,6 +125,29 @@ async function runDailyCheck() {
 
       console.log(`[cron] queuing push for ${row.plate} — ${doc.name} in ${days} days`);
     }
+
+    // ── Multas: detecta multas nuevas comparando contra el último conteo guardado ──
+    if (_fetchFines && row.plate) {
+      try {
+        const res = await _fetchFines(row.plate);
+        const newCount = res?.data?.tickets?.length ?? 0;
+        const oldCount = row.multas_count ?? 0;
+        if (newCount > oldCount) {
+          messages.push({
+            to: row.token,
+            title: '🚔 Nueva multa de tránsito',
+            body: `Tu vehículo ${row.plate} registra ${newCount} multa${newCount === 1 ? '' : 's'} en el sistema.`,
+            sound: 'default',
+            data: { plate: row.plate, doc: 'Multas' },
+            channelId: 'motorly-alerts',
+          });
+          console.log(`[cron] queuing push for ${row.plate} — multas ${oldCount} → ${newCount}`);
+        }
+        db.prepare('UPDATE registrations SET multas_count = ? WHERE token = ?').run(newCount, row.token);
+      } catch (e) {
+        console.error(`[cron] multas check failed for ${row.plate}:`, e.message);
+      }
+    }
   }
 
   await sendPush(messages);
@@ -128,4 +161,4 @@ cron.schedule('0 12 * * *', () => {
 
 console.log('[push] cron scheduled — daily at 9:00 AM Santiago');
 
-module.exports = { upsertRegistration, runDailyCheck };
+module.exports = { upsertRegistration, runDailyCheck, setFetchFines };
