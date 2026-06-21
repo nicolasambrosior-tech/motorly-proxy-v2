@@ -266,12 +266,12 @@ app.get('/vehicle/:plate/soap', async (req, res) => {
   }
 });
 
-// Fines (multas)
+// Fines (multas) — URL correcta: /vehicle/traffic_tickets/{plate}.json
 app.get('/vehicle/:plate/fines', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
   console.log(`[fines] fetching ${plate}`);
   try {
-    const data = await fetchBoostr(`/vehicle/fines/${plate}.json`);
+    const data = await fetchDirect(`/vehicle/traffic_tickets/${plate}.json`);
     res.json(data);
   } catch (e) {
     console.error(`[fines] error for ${plate}:`, e.message);
