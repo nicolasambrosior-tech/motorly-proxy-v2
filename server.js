@@ -430,6 +430,15 @@ app.post('/waitlist', (req, res) => {
   }
 });
 
+// GET /waitlist/count — contador en vivo para mostrar en la landing
+app.get('/waitlist/count', (req, res) => {
+  try {
+    res.json({ total: waitlistCount() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─── Push notification registration ──────────────────────────
 
 // POST /register — app sends push token + vehicle expiry dates
