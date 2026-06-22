@@ -8,6 +8,7 @@ const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { upsertRegistration, runDailyCheck, setFetchFines } = require('./push');
+const { addToWaitlist, waitlistCount } = require('./waitlist');
 puppeteer.use(StealthPlugin());
 
 const app = express();
@@ -406,6 +407,26 @@ app.get('/debug/:plate', async (req, res) => {
     res.status(500).json({ error: e.message, urls });
   } finally {
     await page.close();
+  }
+});
+
+// ─── Waitlist (landing carz.cl) ────────────────────────────────
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// POST /waitlist — captura correo desde la landing
+app.post('/waitlist', (req, res) => {
+  const { email } = req.body;
+  if (!email || !EMAIL_RE.test(email)) {
+    return res.status(400).json({ error: 'email inválido' });
+  }
+  try {
+    addToWaitlist(email);
+    console.log(`[waitlist] +1: ${email}`);
+    res.json({ ok: true, total: waitlistCount() });
+  } catch (e) {
+    console.error('[waitlist] error:', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 
