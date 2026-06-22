@@ -29,6 +29,19 @@ const API_KEY =
 
 const BASE = 'https://api.boostr.cl';
 
+// GetAPI — fuente principal para datos de vehículo + Revisión Técnica
+const GETAPI_KEY = '00079d11-b98d-4568-8e75-cc56c5847ac3';
+const GETAPI_BASE = 'https://chile.getapi.cl';
+
+async function fetchGetApi(plate, timeoutMs = 10000) {
+  const res = await fetch(`${GETAPI_BASE}/v1/vehicles/plate/${plate}`, {
+    headers: { 'X-Api-Key': GETAPI_KEY, 'Accept': 'application/json' },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 // ─── Browser pool ────────────────────────────────────────────────
 let browser = null;
 
@@ -230,7 +243,7 @@ app.get('/test/:plate', async (req, res) => {
   res.json(results);
 });
 
-// Vehicle data
+// Vehicle data (legacy — Boostr, mantenido por compatibilidad)
 app.get('/vehicle/:plate', async (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
   console.log(`[vehicle] fetching ${plate}`);
@@ -239,6 +252,19 @@ app.get('/vehicle/:plate', async (req, res) => {
     res.json(data);
   } catch (e) {
     console.error(`[vehicle] error for ${plate}:`, e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// Vehicle data + Revisión Técnica — fuente principal (GetAPI, datos más frescos)
+app.get('/vehicle/:plate/getapi', async (req, res) => {
+  const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  console.log(`[getapi] fetching ${plate}`);
+  try {
+    const data = await fetchGetApi(plate);
+    res.json(data);
+  } catch (e) {
+    console.error(`[getapi] error for ${plate}:`, e.message);
     res.status(502).json({ error: e.message });
   }
 });
