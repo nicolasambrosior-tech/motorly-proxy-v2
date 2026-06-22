@@ -1,5 +1,5 @@
 /**
- * Motorly Push Notifications
+ * CARZ Push Notifications
  * - Stores user push tokens + vehicle expiry dates in SQLite
  * - Runs daily cron at 9:00 AM Chile time
  * - Sends push notifications via Expo Push API (free)

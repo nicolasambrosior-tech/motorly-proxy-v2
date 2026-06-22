@@ -1,5 +1,5 @@
 /**
- * Motorly Boostr Proxy — Railway
+ * CARZ Boostr Proxy — Railway
  * Usa Chrome real (Puppeteer) para bypasear el Cloudflare JS Challenge de Boostr.
  * La app móvil llama a este servidor en lugar de api.boostr.cl directamente.
  */
@@ -99,7 +99,7 @@ async function fetchDirect(path, timeoutMs = 10000) {
       'Accept': 'application/json',
       'X-API-KEY': API_KEY,
       'Authorization': `Bearer ${API_KEY}`,
-      'User-Agent': 'AutoK-App/1.0',
+      'User-Agent': 'CARZ-App/1.0',
     },
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -239,7 +239,7 @@ async function fetchBoostr(path, timeoutMs = 45000) {
 
 // Health check
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'motorly-boostr-proxy', version: '2.0' });
+  res.json({ status: 'ok', service: 'carz-boostr-proxy', version: '2.0' });
 });
 
 // Debug: test multiple auth combinations
@@ -467,7 +467,7 @@ app.post('/push/run', async (req, res) => {
 
 // ─── Start ───────────────────────────────────────────────────────
 app.listen(PORT, async () => {
-  console.log(`Motorly proxy listening on port ${PORT}`);
+  console.log(`CARZ proxy listening on port ${PORT}`);
   // Pre-warm the browser
   try {
     await getBrowser();
