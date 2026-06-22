@@ -42,6 +42,31 @@ async function fetchGetApi(plate, timeoutMs = 10000) {
   return res.json();
 }
 
+// ─── Google Places (New) — talleres/vulcanizaciones/lavados cercanos ──
+// La key se setea como variable de entorno en Railway (GOOGLE_PLACES_KEY),
+// nunca hardcodeada — pendiente de que se cree la cuenta de Google Cloud.
+const GOOGLE_PLACES_KEY = process.env.GOOGLE_PLACES_KEY || '';
+
+async function searchPlaces(query, lat, lng, timeoutMs = 10000) {
+  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+      'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.rating,places.currentOpeningHours.openNow',
+    },
+    body: JSON.stringify({
+      textQuery: query,
+      locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 6000.0 } },
+      maxResultCount: 15,
+      languageCode: 'es',
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
 // ─── Browser pool ────────────────────────────────────────────────
 let browser = null;
 
@@ -265,6 +290,25 @@ app.get('/vehicle/:plate/getapi', async (req, res) => {
     res.json(data);
   } catch (e) {
     console.error(`[getapi] error for ${plate}:`, e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// Lugares cercanos (talleres / vulcanizaciones / lavados) — Google Places
+app.get('/places/search', async (req, res) => {
+  const { lat, lng, query } = req.query;
+  if (!lat || !lng || !query) {
+    return res.status(400).json({ error: 'lat, lng y query son requeridos' });
+  }
+  if (!GOOGLE_PLACES_KEY) {
+    return res.status(503).json({ error: 'GOOGLE_PLACES_KEY no configurada en el servidor' });
+  }
+  console.log(`[places] searching "${query}" near ${lat},${lng}`);
+  try {
+    const data = await searchPlaces(query, parseFloat(lat), parseFloat(lng));
+    res.json(data);
+  } catch (e) {
+    console.error('[places] error:', e.message);
     res.status(502).json({ error: e.message });
   }
 });
