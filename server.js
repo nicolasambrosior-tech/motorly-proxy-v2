@@ -25,13 +25,11 @@ app.use((req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 
-const API_KEY =
-  'clnts.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbGllbnQiOjE3NSwicGxhbiI6ImN1c3RvbSIsImFkZG9ucyI6IiIsImV4Y2x1ZGVzIjoiIiwicmF0ZSI6IjV4MTAiLCJjdXN0b20iOnsiZG9jdW1lbnRfbnVtYmVyX2RhaWx5X2xpbWl0IjowLCJwbGF0ZXNfZGFpbHlfbGltaXQiOjB9LCJpYXQiOjE3Nzg3ODA4MjksImV4cCI6MTkwNTAxMTIyOX0.30q7FCtygUDaqyaV0RrHTYC4s-bAqo3SXIHekYF23lE';
-
+const API_KEY = process.env.BOOSTR_API_KEY;
 const BASE = 'https://api.boostr.cl';
 
 // GetAPI — fuente principal para datos de vehículo + Revisión Técnica
-const GETAPI_KEY = '00079d11-b98d-4568-8e75-cc56c5847ac3';
+const GETAPI_KEY = process.env.GETAPI_KEY;
 const GETAPI_BASE = 'https://chile.getapi.cl';
 
 async function fetchGetApi(plate, timeoutMs = 10000) {
